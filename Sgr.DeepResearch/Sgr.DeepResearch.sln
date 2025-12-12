@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sgr.DeepResearch.Api", "..\Sgr.DeepResearch.Api\Sgr.DeepResearch.Api.csproj", "{BEFBF72E-B8F1-40F2-BDE5-59CBA8044819}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sgr.DeepResearch.Core", "..\Sgr.DeepResearch.Core\Sgr.DeepResearch.Core.csproj", "{1BC7EB82-12D7-4FDF-A980-56616E2A0D11}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sgr.DeepResearch.Infrastructure", "..\Sgr.DeepResearch.Infrastructure\Sgr.DeepResearch.Infrastructure.csproj", "{2B3F0D4D-E28C-481C-A504-DE93CCAC03F1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BEFBF72E-B8F1-40F2-BDE5-59CBA8044819}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BEFBF72E-B8F1-40F2-BDE5-59CBA8044819}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BEFBF72E-B8F1-40F2-BDE5-59CBA8044819}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BEFBF72E-B8F1-40F2-BDE5-59CBA8044819}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1BC7EB82-12D7-4FDF-A980-56616E2A0D11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1BC7EB82-12D7-4FDF-A980-56616E2A0D11}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1BC7EB82-12D7-4FDF-A980-56616E2A0D11}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1BC7EB82-12D7-4FDF-A980-56616E2A0D11}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2B3F0D4D-E28C-481C-A504-DE93CCAC03F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B3F0D4D-E28C-481C-A504-DE93CCAC03F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B3F0D4D-E28C-481C-A504-DE93CCAC03F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B3F0D4D-E28C-481C-A504-DE93CCAC03F1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
