@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Sgr.DeepResearch.Infrastructure\Sgr.DeepResearch.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.1.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1" />
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.68.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
