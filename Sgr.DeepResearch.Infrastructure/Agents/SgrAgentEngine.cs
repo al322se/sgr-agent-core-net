@@ -16,13 +16,12 @@ public class SgrAgentEngine : IAgentEngine
     private readonly ILogger<SgrAgentEngine> _logger;
 
     // Константы конфигурации
-    private const string ModelId = "gpt-4o-mini"; // Или ваша модель в OpenRouter
     private const int MaxIterations = 10;
 
     public SgrAgentEngine(
         IResearchRepository repository,
         ISearchService searchService,
-        Kernel kernel, // SK Kernel инжектится сюда
+        Kernel kernel, 
         ILogger<SgrAgentEngine> logger)
     {
         _repository = repository;
@@ -44,7 +43,8 @@ public class SgrAgentEngine : IAgentEngine
             while (state.Status == ResearchStatus.Running && state.IterationCount < MaxIterations && !ct.IsCancellationRequested)
             {
                 await RunIterationAsync(researchId);
-                // Перечитываем состояние, так как оно обновилось
+                
+                // Перечитываем состояние
                 state = await _repository.GetAsync(researchId);
                 
                 if (state!.Status == ResearchStatus.Completed || state.Status == ResearchStatus.Failed)
@@ -69,14 +69,16 @@ public class SgrAgentEngine : IAgentEngine
         state.IterationCount++;
         _logger.LogInformation("--- Iteration {Iteration} for {TaskId} ---", state.IterationCount, researchId);
 
-        // 1. Подготовка контекста (Prompt Engineering)
+        // 1. Подготовка контекста
         var chatHistory = BuildChatHistory(state);
+        
+        // ЛОГИРОВАНИЕ: Выводим структуру чата перед отправкой, чтобы видеть, что уходит в LLM
+        LogChatHistoryDebug(chatHistory);
 
-        // 2. Вызов LLM с требованием JSON Schema (Reasoning Phase)
-        // Настройка для Structured Outputs (Strict Mode)
+        // 2. Настройка вызова
         var executionSettings = new OpenAIPromptExecutionSettings
         {
-            ResponseFormat = typeof(ReasoningSchema), // Magic of Semantic Kernel & OpenAI SDK
+            ResponseFormat = typeof(ReasoningSchema), 
             Temperature = 0.2,
             MaxTokens = 4000
         };
@@ -90,22 +92,34 @@ public class SgrAgentEngine : IAgentEngine
 
             var responseContent = result.Content ?? "{}";
             
-            // Сохраняем "мысли" агента в историю
+            // Сохраняем "мысли" агента
             state.History.Add(new ChatMessage { Role = "assistant", Content = responseContent });
             await _repository.UpdateAsync(state);
 
-            // 3. Десериализация и логика (Reasoning)
-            var reasoning = JsonSerializer.Deserialize<ReasoningSchema>(responseContent);
+            // 3. Десериализация
+            ReasoningSchema? reasoning;
+            try 
+            {
+                reasoning = JsonSerializer.Deserialize<ReasoningSchema>(responseContent);
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.LogError(jsonEx, "JSON Parse Error. Content: {Content}", responseContent);
+                // Если модель вернула битый JSON, добавляем системное сообщение и пробуем дальше (или фейлим)
+                state.History.Add(new ChatMessage { Role = "system", Content = "Error parsing JSON response. Please ensure valid JSON format." });
+                await _repository.UpdateAsync(state);
+                return;
+            }
             
             if (reasoning == null)
             {
-                _logger.LogWarning("Failed to parse reasoning schema");
+                _logger.LogWarning("Reasoning schema is null");
                 return;
             }
 
             LogReasoning(reasoning);
 
-            // 4. Выбор действия (Action Selection)
+            // 4. Выбор действия
             if (reasoning.TaskCompleted)
             {
                 await ExecuteFinalAnswerAsync(state, reasoning);
@@ -117,9 +131,10 @@ public class SgrAgentEngine : IAgentEngine
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during iteration");
-            state.History.Add(new ChatMessage { Role = "system", Content = $"Error: {ex.Message}" });
+            _logger.LogError(ex, "Error during iteration execution");
+            state.History.Add(new ChatMessage { Role = "system", Content = $"Error executing iteration: {ex.Message}" });
             await _repository.UpdateAsync(state);
+            throw; // Пробрасываем, чтобы цикл остановился или обработался выше
         }
     }
 
@@ -128,40 +143,43 @@ public class SgrAgentEngine : IAgentEngine
         string toolResult = "";
         string toolName = reasoning.NextToolName;
 
+        _logger.LogInformation("Executing Tool: {ToolName} with Args: {Args}", toolName, reasoning.ToolArguments);
+
         try
         {
             switch (toolName.ToLower())
             {
                 case "websearch":
-                    // В реальном SGR аргументы - это JSON. Тут упрощаем, считаем что ToolArguments это строка запроса
                     toolResult = await _searchService.SearchAsync(reasoning.ToolArguments);
                     break;
                 
                 case "extractcontent":
-                    // Пример парсинга аргументов, если они переданы как JSON список URL
-                    // var urls = JsonSerializer.Deserialize<List<string>>(reasoning.ToolArguments);
-                    // toolResult = await _searchService.ExtractContentAsync(urls);
-                    toolResult = "Extract content simulated (requires real urls handling logic)";
+                    // Здесь ожидаем, что аргументы - это JSON массив URL или один URL
+                    // Простая эмуляция: если это просто строка с URL, оборачиваем в список
+                    var urls = new List<string> { reasoning.ToolArguments };
+                    toolResult = await _searchService.ExtractContentAsync(urls);
                     break;
 
                 default:
-                    toolResult = $"Tool '{toolName}' not found.";
+                    toolResult = $"Tool '{toolName}' not found or not supported.";
                     break;
             }
         }
         catch (Exception ex)
         {
             toolResult = $"Tool execution error: {ex.Message}";
+            _logger.LogError(ex, "Tool failed");
         }
 
-        // 5. Обновление контекста (Observation)
-        _logger.LogInformation("Tool {ToolName} result length: {Length}", toolName, toolResult.Length);
+        _logger.LogInformation("Tool Result Length: {Length}", toolResult.Length);
         
+        // 5. Сохранение результата
+        // Важно: Сохраняем как 'tool' в БД для семантики, но в BuildChatHistory превратим в UserMessage
         state.History.Add(new ChatMessage 
         { 
             Role = "tool", 
             Content = toolResult,
-            ToolCallId = toolName // Условно используем имя как ID
+            ToolCallId = toolName // Используем имя инструмента как ID для наглядности
         });
         
         await _repository.UpdateAsync(state);
@@ -169,10 +187,10 @@ public class SgrAgentEngine : IAgentEngine
 
     private async Task ExecuteFinalAnswerAsync(ResearchState state, ReasoningSchema reasoning)
     {
-        _logger.LogInformation("Task Completed. Report: {Report}", reasoning.ToolArguments);
+        _logger.LogInformation("Task Completed. Report generated.");
         
         state.Status = ResearchStatus.Completed;
-        state.FinalReport = reasoning.ToolArguments; // Предполагаем, что отчет лежит в аргументах
+        state.FinalReport = reasoning.ToolArguments;
         await _repository.UpdateAsync(state);
     }
 
@@ -180,7 +198,6 @@ public class SgrAgentEngine : IAgentEngine
     {
         var history = new ChatHistory();
         
-        // System Prompt - Сердце SGR
         string systemPrompt = @"You are a generic research agent executing a Schema-Guided Reasoning (SGR) process.
 Your goal is to provide accurate and concise information based on the user's task.
 
@@ -188,7 +205,7 @@ You operate in a loop: Reasoning -> Action -> Observation.
 
 AVAILABLE TOOLS:
 1. WebSearch: Search the internet. Args: query string.
-2. ExtractContent: Get full page content. Args: list of URLs (json).
+2. ExtractContent: Get full page content. Args: url string.
 3. FinalAnswer: Return the final report. Args: the report text.
 
 CRITICAL INSTRUCTION:
@@ -201,18 +218,49 @@ Do not output plain text, only JSON.";
 
         foreach (var msg in state.History)
         {
-            if (msg.Role == "user") history.AddUserMessage(msg.Content);
-            else if (msg.Role == "assistant") history.AddAssistantMessage(msg.Content);
-            else if (msg.Role == "tool") history.AddMessage(AuthorRole.Tool, msg.Content); // SK supports Tool role
-            else history.AddSystemMessage(msg.Content);
+            if (msg.Role == "user") 
+            {
+                history.AddUserMessage(msg.Content);
+            }
+            else if (msg.Role == "assistant") 
+            {
+                history.AddAssistantMessage(msg.Content);
+            }
+            else if (msg.Role == "tool") 
+            {
+                // ИСПРАВЛЕНИЕ: Semantic Kernel падает, если использовать AuthorRole.Tool без валидного Call ID и предыдущего вызова.
+                // В архитектуре SGR мы используем "виртуальные" вызовы через JSON.
+                // Поэтому результаты инструментов подаем как Observation от пользователя.
+                string observationPrefix = !string.IsNullOrEmpty(msg.ToolCallId) 
+                    ? $"[Observation from {msg.ToolCallId}]:" 
+                    : "[Observation]:";
+                
+                history.AddUserMessage($"{observationPrefix}\n{msg.Content}");
+            }
+            else 
+            {
+                history.AddSystemMessage(msg.Content);
+            }
         }
 
         return history;
     }
 
+    private void LogChatHistoryDebug(ChatHistory history)
+    {
+        _logger.LogInformation(">>> CHAT HISTORY PREVIEW ({Count} msgs) <<<", history.Count);
+        foreach (var msg in history)
+        {
+            // Логируем только начало сообщений, чтобы не засорять консоль
+            string preview = msg.Content?.Length > 100 ? msg.Content.Substring(0, 100) + "..." : msg.Content ?? "";
+            _logger.LogInformation("[{Role}]: {Content}", msg.Role, preview);
+        }
+        _logger.LogInformation(">>> END PREVIEW <<<");
+    }
+
     private void LogReasoning(ReasoningSchema r)
     {
-        _logger.LogInformation("\n[Reasoning]\nSituation: {Sit}\nNext Tool: {Tool}\nSteps: {Steps}\nEnough Data: {Enough}\n", 
-            r.CurrentSituation, r.NextToolName, string.Join("->", r.RemainingSteps), r.EnoughData);
+        _logger.LogInformation("\n[Reasoning]\nSituation: {Sit}\nNext Tool: {Tool}\nStep: {Steps}\nEnough Data: {Enough}\n", 
+            r.CurrentSituation, r.NextToolName, string.Join("->", r.ReasoningSteps.Take(1)), r.EnoughData);
     }
 }

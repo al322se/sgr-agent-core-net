@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization; // Нужно для правильной сериализации request body
 using Microsoft.Extensions.Logging;
 using Sgr.DeepResearch.Core.Interfaces;
 
@@ -36,8 +37,9 @@ public class TavilySearchService : ISearchService
         
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("Tavily API error: {StatusCode}", response.StatusCode);
-            return "Search failed.";
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Tavily Search API error: {StatusCode}. Body: {Body}", response.StatusCode, error);
+            return $"Search failed: {response.StatusCode}";
         }
 
         return await response.Content.ReadAsStringAsync();
@@ -45,8 +47,37 @@ public class TavilySearchService : ISearchService
 
     public async Task<string> ExtractContentAsync(List<string> urls)
     {
-        // Упрощенная реализация - в реальном проекте используем endpoint extract Tavily или Firecrawl
         _logger.LogInformation("Tavily Extract: {Count} urls", urls.Count);
-        return $"Simulated content for {urls.Count} URLs. In real implementation call Tavily Extract API.";
+
+        // Формируем запрос к эндпоинту /extract
+        // Документация: https://docs.tavily.com/docs/tavily-api/rest-api#extract
+        var requestBody = new
+        {
+            api_key = _apiKey,
+            urls = urls // Список URL для извлечения
+        };
+
+        var jsonOptions = new JsonSerializerOptions 
+        { 
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower 
+        };
+
+        var content = new StringContent(JsonSerializer.Serialize(requestBody, jsonOptions), Encoding.UTF8, "application/json");
+        
+        // ВАЖНО: Используем правильный эндпоинт
+        var response = await _httpClient.PostAsync("https://api.tavily.com/extract", content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Tavily Extract API error: {StatusCode}. Body: {Body}", response.StatusCode, error);
+            return $"Extract failed: {response.StatusCode} - {error}";
+        }
+
+        var resultJson = await response.Content.ReadAsStringAsync();
+        
+        // Для экономии токенов и читаемости лога можно немного почистить результат (опционально),
+        // но агент просил raw content, так что отдаем как есть.
+        return resultJson;
     }
 }
